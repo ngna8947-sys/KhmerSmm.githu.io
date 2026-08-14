@@ -1,5 +1,8 @@
 import io
+import os
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import qrcode
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,23 +15,34 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-# ១. កំណត់ Logging
+# ១. បង្កើត Fake Web Server ដើម្បីឆ្លើយតប Render Port Check
+class SimpleHealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running alive!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), SimpleHealthCheckHandler)
+    server.serve_forever()
+
+# ២. កំណត់ Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# ២. ព័ត៌មាន Bot & Bakong
+# ៣. ព័ត៌មាន Bot & Bakong
 BOT_TOKEN = "8730299395:AAFG-tX_lgvE_JeUInmRkNhMiT4snEbXsfc"
 BAKONG_ID = "mon_samnang@bkrt"
 ACCOUNT_NAME = "SAMNANG MÔN"
-
-# ដាក់ Chat ID របស់អ្នក (ឆែកតាម Telegram @userinfobot)
 ADMIN_CHAT_ID = "YOUR_ADMIN_CHAT_ID" 
 
-# ៣. ដំណាក់កាលដំណើរការ (States)
+# ៤. ដំណាក់កាលដំណើរការ (States)
 SELECT_GAME, SELECT_PACKAGE, ENTER_UID, UPLOAD_SLIP = range(4)
 
-# ៤. បញ្ជីហ្គេម និងកញ្ចប់ពេជ្រ/ប្រចាំខែ
+# ៥. បញ្ជីហ្គេម និងកញ្ចប់ពេជ្រ/ប្រចាំខែ
 GAMES_DATA = {
     "freefire": {
         "title": "🔥 Free Fire",
@@ -78,7 +92,7 @@ GAMES_DATA = {
     }
 }
 
-# មុខងារបង្កើតរូបភាព QR Code ក្នុង Memory
+# មុខងារបង្កើតរូបភាព QR Code
 def generate_qr(text_data: str) -> io.BytesIO:
     qr = qrcode.QRCode(
         version=1,
@@ -95,7 +109,7 @@ def generate_qr(text_data: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-# ៥. មុខងារ /start
+# ៦. មុខងារ /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
         [InlineKeyboardButton("🔥 Free Fire", callback_data="game_freefire")],
@@ -113,7 +127,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return SELECT_GAME
 
-# ៦. មុខងារជ្រើសរើសហ្គេម
+# ៧. មុខងារជ្រើសរើសហ្គេម
 async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -137,7 +151,7 @@ async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     )
     return SELECT_PACKAGE
 
-# ៧. មុខងារជ្រើសរើសកញ្ចប់
+# ៨. មុខងារជ្រើសរើសកញ្ចប់
 async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -170,7 +184,7 @@ async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     return ENTER_UID
 
-# ៨. មុខងារទទួល UID និងបញ្ជូនរូប QR Code
+# ៩. មុខងារទទួល UID និងបញ្ជូនរូប QR Code
 async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     uid = update.message.text
     context.user_data["uid"] = uid
@@ -193,10 +207,8 @@ async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"👉 **សូមស្កេនរូប QR ខាងលើ រួចផ្ញើរូបភាពវិក្កយបត្រ (Slip) ចូលទីនេះដើម្បីបញ្ជាក់។**"
     )
 
-    # បង្កើតរូប QR Code ដោយផ្ទាល់ចេញពី Bakong ID
     qr_image = generate_qr(BAKONG_ID)
 
-    # ផ្ញើរូបភាព QR Code ទៅភ្ញៀវ
     await update.message.reply_photo(
         photo=qr_image,
         caption=caption_text,
@@ -204,7 +216,7 @@ async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return UPLOAD_SLIP
 
-# ៩. មុខងារទទួល Slip
+# ១០. មុខងារទទួល Slip
 async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     pkg = context.user_data.get("package")
@@ -236,12 +248,17 @@ async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     return ConversationHandler.END
 
-# ១០. Cancel
+# ១១. Cancel
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("❌ ការបញ្ជាទិញត្រូវបានបោះបង់។ វាយ /start ដើម្បីចាប់ផ្តើមឡើងវិញ។")
     return ConversationHandler.END
 
 def main():
+    # ចាប់ផ្តើម Web Server នៅ Background សម្រាប់ Render
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
+
+    # ចាប់ផ្តើម Telegram Bot
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
