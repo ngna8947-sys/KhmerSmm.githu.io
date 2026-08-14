@@ -1,4 +1,6 @@
+import io
 import logging
+import qrcode
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -15,12 +17,12 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# ២. ព័ត៌មាន Bot & គណនី Bakong
+# ២. ព័ត៌មាន Bot & Bakong
 BOT_TOKEN = "8730299395:AAFG-tX_lgvE_JeUInmRkNhMiT4snEbXsfc"
 BAKONG_ID = "mon_samnang@bkrt"
 ACCOUNT_NAME = "SAMNANG MÔN"
 
-# ដាក់ Chat ID របស់អ្នក (ឆែកតាម Telegram @userinfobot) ដើម្បីឱ្យ Bot ផ្ញើ Slip ទៅប្រាប់
+# ដាក់ Chat ID របស់អ្នក (ឆែកតាម Telegram @userinfobot)
 ADMIN_CHAT_ID = "YOUR_ADMIN_CHAT_ID" 
 
 # ៣. ដំណាក់កាលដំណើរការ (States)
@@ -76,7 +78,24 @@ GAMES_DATA = {
     }
 }
 
-# ៥. មុខងារចាប់ផ្តើម /start
+# មុខងារបង្កើតរូបភាព QR Code ក្នុង Memory
+def generate_qr(text_data: str) -> io.BytesIO:
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(text_data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+# ៥. មុខងារ /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
         [InlineKeyboardButton("🔥 Free Fire", callback_data="game_freefire")],
@@ -103,7 +122,6 @@ async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data["game_key"] = game_key
     game_info = GAMES_DATA[game_key]
 
-    # បង្កើតប៊ូតុងកញ្ចប់ពេជ្រ
     keyboard = []
     for pkg_id, pkg in game_info["packages"].items():
         keyboard.append([InlineKeyboardButton(f"{pkg['name']} (${pkg['price']})", callback_data=pkg_id)])
@@ -119,12 +137,11 @@ async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     )
     return SELECT_PACKAGE
 
-# ៧. មុខងារជ្រើសរើសកញ្ចប់ពេជ្រ
+# ៧. មុខងារជ្រើសរើសកញ្ចប់
 async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
 
-    # ប៊ូតុង Back
     if query.data == "back_to_games":
         keyboard = [
             [InlineKeyboardButton("🔥 Free Fire", callback_data="game_freefire")],
@@ -153,7 +170,7 @@ async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     return ENTER_UID
 
-# ៨. មុខងារទទួល UID និងបង្ហាញព័ត៌មាន Bakong
+# ៨. មុខងារទទួល UID និងបញ្ជូនរូប QR Code
 async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     uid = update.message.text
     context.user_data["uid"] = uid
@@ -161,25 +178,33 @@ async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     game_key = context.user_data["game_key"]
     game_info = GAMES_DATA[game_key]
 
-    payment_info = (
+    caption_text = (
         f"📝 **ព័ត៌មានការកុម្ម៉ង់៖**\n"
         f"• ហ្គេម៖ **{game_info['title']}**\n"
         f"• ព័ត៌មាន ID៖ `{uid}`\n"
         f"• កញ្ចប់៖ **{pkg['name']}**\n"
         f"• តម្លៃត្រូវបង់៖ **${pkg['price']}**\n\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🏦 **ព័ត៌មានទូទាត់ប្រាក់ (Bakong / KHQR)**\n"
-        f"• ឈ្មោះគណនី៖ **{ACCOUNT_NAME}**\n"
+        f"🏦 **គណនី Bakong / KHQR**\n"
+        f"• ឈ្មោះ៖ **{ACCOUNT_NAME}**\n"
         f"• Bakong ID៖ `{BAKONG_ID}`\n"
         f"• ចំនួនទឹកប្រាក់៖ **${pkg['price']}**\n"
         f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👉 **សូមធ្វើការផ្ទេរប្រាក់ រួចផ្ញើរូបភាពវិក្កយបត្រ (Slip) ចូលទីនេះដើម្បីបញ្ជាក់ការបញ្ជាទិញ។**"
+        f"👉 **សូមស្កេនរូប QR ខាងលើ រួចផ្ញើរូបភាពវិក្កយបត្រ (Slip) ចូលទីនេះដើម្បីបញ្ជាក់។**"
     )
 
-    await update.message.reply_text(payment_info, parse_mode="Markdown")
+    # បង្កើតរូប QR Code ដោយផ្ទាល់ចេញពី Bakong ID
+    qr_image = generate_qr(BAKONG_ID)
+
+    # ផ្ញើរូបភាព QR Code ទៅភ្ញៀវ
+    await update.message.reply_photo(
+        photo=qr_image,
+        caption=caption_text,
+        parse_mode="Markdown"
+    )
     return UPLOAD_SLIP
 
-# ៩. មុខងារទទួលរូបភាពវិក្កយបត្រ (Slip)
+# ៩. មុខងារទទួល Slip
 async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     pkg = context.user_data.get("package")
@@ -188,14 +213,12 @@ async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     game_info = GAMES_DATA.get(game_key, {"title": "Unknown"})
     photo = update.message.photo[-1]
 
-    # បញ្ជាក់ទៅអតិថិជន
     await update.message.reply_text(
         "✅ **យើងបានទទួលវិក្កយបត្ររបស់អ្នកហើយ!**\n"
         "Admin កំពុងត្រួតពិនិត្យ និងបញ្ចូលជូនក្នុងរយៈពេល 1-5 នាទី។ សូមអរគុណ!",
         parse_mode="Markdown"
     )
 
-    # បាញ់ដំណឹងទៅកាន់ Admin
     if ADMIN_CHAT_ID != "YOUR_ADMIN_CHAT_ID":
         admin_text = (
             f"🔔 **មានការកុម្ម៉ង់ថ្មី!**\n"
@@ -213,12 +236,11 @@ async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     return ConversationHandler.END
 
-# ១០. មុខងារបោះបង់ /cancel
+# ១០. Cancel
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("❌ ការបញ្ជាទិញត្រូវបានបោះបង់។ វាយ /start ដើម្បីចាប់ផ្តើមឡើងវិញ។")
     return ConversationHandler.END
 
-# Main Loop
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
