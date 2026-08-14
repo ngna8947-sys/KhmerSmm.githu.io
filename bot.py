@@ -15,34 +15,34 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-# ១. បង្កើត Fake Web Server ដើម្បីឆ្លើយតប Render Port Check
+# ១. Dummy Server សម្រាប់ Render
 class SimpleHealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is running alive!")
+        self.wfile.write(b"Bot is active!")
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), SimpleHealthCheckHandler)
     server.serve_forever()
 
-# ២. កំណត់ Logging
+# ២. Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# ៣. ព័ត៌មាន Bot & Bakong
+# ៣. Config
 BOT_TOKEN = "8730299395:AAFG-tX_lgvE_JeUInmRkNhMiT4snEbXsfc"
 BAKONG_ID = "mon_samnang@bkrt"
 ACCOUNT_NAME = "SAMNANG MÔN"
 ADMIN_CHAT_ID = "YOUR_ADMIN_CHAT_ID" 
 
-# ៤. ដំណាក់កាលដំណើរការ (States)
+# States
 SELECT_GAME, SELECT_PACKAGE, ENTER_UID, UPLOAD_SLIP = range(4)
 
-# ៥. បញ្ជីហ្គេម និងកញ្ចប់ពេជ្រ/ប្រចាំខែ
+# Data
 GAMES_DATA = {
     "freefire": {
         "title": "🔥 Free Fire",
@@ -92,7 +92,6 @@ GAMES_DATA = {
     }
 }
 
-# មុខងារបង្កើតរូបភាព QR Code
 def generate_qr(text_data: str) -> io.BytesIO:
     qr = qrcode.QRCode(
         version=1,
@@ -109,8 +108,9 @@ def generate_qr(text_data: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-# ៦. មុខងារ /start
+# Start & Reset Handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()  # សម្អាតទិន្នន័យចាស់ចោលទាំងអស់ដើម្បីកុំឱ្យគាំង
     keyboard = [
         [InlineKeyboardButton("🔥 Free Fire", callback_data="game_freefire")],
         [InlineKeyboardButton("⚔️ Mobile Legends", callback_data="game_mlbb")],
@@ -127,7 +127,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return SELECT_GAME
 
-# ៧. មុខងារជ្រើសរើសហ្គេម
+# ជ្រើសរើសហ្គេម
 async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -151,7 +151,7 @@ async def select_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     )
     return SELECT_PACKAGE
 
-# ៨. មុខងារជ្រើសរើសកញ្ចប់
+# ជ្រើសរើសកញ្ចប់
 async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -169,7 +169,7 @@ async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return SELECT_GAME
 
-    game_key = context.user_data["game_key"]
+    game_key = context.user_data.get("game_key", "freefire")
     pkg_key = query.data
     game_info = GAMES_DATA[game_key]
     selected_pkg = game_info["packages"][pkg_key]
@@ -184,13 +184,13 @@ async def select_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     return ENTER_UID
 
-# ៩. មុខងារទទួល UID និងបញ្ជូនរូប QR Code
+# ទទួល ID & ផ្ញើ QR Code
 async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     uid = update.message.text
     context.user_data["uid"] = uid
-    pkg = context.user_data["package"]
-    game_key = context.user_data["game_key"]
-    game_info = GAMES_DATA[game_key]
+    pkg = context.user_data.get("package", {"name": "N/A", "price": 0.00})
+    game_key = context.user_data.get("game_key", "freefire")
+    game_info = GAMES_DATA.get(game_key, {"title": "Gaming Top-up"})
 
     caption_text = (
         f"📝 **ព័ត៌មានការកុម្ម៉ង់៖**\n"
@@ -216,13 +216,13 @@ async def enter_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return UPLOAD_SLIP
 
-# ១០. មុខងារទទួល Slip
+# ទទួល Slip
 async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
-    pkg = context.user_data.get("package")
-    uid = context.user_data.get("uid")
-    game_key = context.user_data.get("game_key")
-    game_info = GAMES_DATA.get(game_key, {"title": "Unknown"})
+    pkg = context.user_data.get("package", {})
+    uid = context.user_data.get("uid", "N/A")
+    game_key = context.user_data.get("game_key", "freefire")
+    game_info = GAMES_DATA.get(game_key, {"title": "Gaming Top-up"})
     photo = update.message.photo[-1]
 
     await update.message.reply_text(
@@ -237,7 +237,7 @@ async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             f"🎮 ហ្គេម: {game_info['title']}\n"
             f"👤 អតិថិជន: @{user.username} (ID: `{user.id}`)\n"
             f"🆔 Game ID: `{uid}`\n"
-            f"📦 កញ្ចប់: {pkg['name']} (${pkg['price']})\n"
+            f"📦 កញ្ចប់: {pkg.get('name', 'N/A')} (${pkg.get('price', '0.00')})\n"
         )
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
@@ -248,28 +248,40 @@ async def upload_slip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     return ConversationHandler.END
 
-# ១១. Cancel
+# Cancel
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()
     await update.message.reply_text("❌ ការបញ្ជាទិញត្រូវបានបោះបង់។ វាយ /start ដើម្បីចាប់ផ្តើមឡើងវិញ។")
     return ConversationHandler.END
 
 def main():
-    # ចាប់ផ្តើម Web Server នៅ Background សម្រាប់ Render
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
 
-    # ចាប់ផ្តើម Telegram Bot
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            SELECT_GAME: [CallbackQueryHandler(select_game)],
-            SELECT_PACKAGE: [CallbackQueryHandler(select_package)],
-            ENTER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_uid)],
-            UPLOAD_SLIP: [MessageHandler(filters.PHOTO, upload_slip)],
+            SELECT_GAME: [
+                CallbackQueryHandler(select_game),
+                CommandHandler("start", start),
+            ],
+            SELECT_PACKAGE: [
+                CallbackQueryHandler(select_package),
+                CommandHandler("start", start),
+            ],
+            ENTER_UID: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_uid),
+                CommandHandler("start", start),
+            ],
+            UPLOAD_SLIP: [
+                MessageHandler(filters.PHOTO, upload_slip),
+                CommandHandler("start", start),
+            ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), CommandHandler("start", start)],
+        allow_reentry=True,  # អនុញ្ញាតឱ្យវាយ /start សារឡើងវិញបានគ្រប់ពេល
     )
 
     app.add_handler(conv_handler)
